@@ -22,3 +22,32 @@ wheels/
 .vscode/
 venv/
 env/
+.venv/
+
+# Audio files
+*.wav
+*.mp3
+*.flac
+*.ogg
+
+# Model weights
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# Training outputs
+output/
+wandb/
+runs/
+checkpoints/
+
+# Secrets / config overrides
+.env
+*.key
+
+# HuggingFace cache
+.hf_cache/
+
+# Misc
+*.log

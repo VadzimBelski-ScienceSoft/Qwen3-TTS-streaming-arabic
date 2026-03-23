@@ -31,6 +31,13 @@ dependencies = [
   "einops",
 ]
 
+[project.optional-dependencies]
+server = [
+  "fastapi>=0.100.0",
+  "uvicorn[standard]>=0.20.0",
+  "pydub",          # optional: MP3 output support (also requires ffmpeg)
+]
+
 [project.urls]
 Homepage = "https://github.com/Qwen/Qwen3-TTS"
 Repository = "https://github.com/Qwen/Qwen3-TTS"

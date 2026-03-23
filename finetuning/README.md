@@ -1,13 +1,10 @@
-## Fine Tuning Qwen3-TTS-12Hz-1.7B/0.6B-Base
+## Fine-Tuning Qwen3-TTS-12Hz-1.7B/0.6B-Base
 
-The Qwen3-TTS-12Hz-1.7B/0.6B-Base model series currently supports single-speaker fine-tuning. Please run `pip install qwen-tts` first, then run the command below:
+Single-speaker fine-tuning with Arabic language support.
 
-```
-git clone https://github.com/QwenLM/Qwen3-TTS.git
-cd Qwen3-TTS/finetuning
-```
+Run `pip install -e .` from the repo root first, then follow the steps below.
 
-Then follow the steps below to complete the entire fine-tuning workflow. Multi-speaker fine-tuning and other advanced fine-tuning features will be supported in future releases.
+---
 
 ### 1) Input JSONL format
 
@@ -16,21 +13,24 @@ Prepare your training file as a JSONL (one JSON object per line). Each line must
 - `audio`: path to the target training audio (wav)
 - `text`: transcript corresponding to `audio`
 - `ref_audio`: path to the reference speaker audio (wav)
+- `language` _(optional)_: explicit language tag — `english`, `arabic`, etc.
+  If omitted, language is auto-detected from the script (Unicode Arabic block detection).
 
 Example:
 ```jsonl
 {"audio":"./data/utt0001.wav","text":"其实我真的有发现，我是一个特别善于观察别人情绪的人。","ref_audio":"./data/ref.wav"}
 {"audio":"./data/utt0002.wav","text":"She said she would be here by noon.","ref_audio":"./data/ref.wav"}
+{"audio":"./data/utt0003.wav","text":"مرحبًا، كيف حالك؟","ref_audio":"./data/ref.wav","language":"arabic"}
 ```
 
 `ref_audio` recommendation:
-- Strongly recommended: use the same `ref_audio` for all samples.
-- Keeping `ref_audio` identical across the dataset usually improves speaker consistency and stability during generation.
+- Use the same `ref_audio` for all samples for best speaker consistency.
 
+---
 
 ### 2) Prepare data (extract `audio_codes`)
 
-Convert `train_raw.jsonl` into a training JSONL that includes `audio_codes`:
+Convert your raw JSONL into a training JSONL that includes `audio_codes`:
 
 ```bash
 python prepare_data.py \
@@ -40,10 +40,9 @@ python prepare_data.py \
   --output_jsonl train_with_codes.jsonl
 ```
 
+---
 
 ### 3) Fine-tune
-
-Run SFT using the prepared JSONL:
 
 ```bash
 python sft_12hz.py \
@@ -53,15 +52,32 @@ python sft_12hz.py \
   --batch_size 2 \
   --lr 2e-5 \
   --num_epochs 3 \
-  --speaker_name speaker_test
+  --speaker_name my_speaker
 ```
 
-Checkpoints will be written to:
-- `output/checkpoint-epoch-0`
-- `output/checkpoint-epoch-1`
-- `output/checkpoint-epoch-2`
-- ...
+#### All flags
 
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--init_model_path` | `Qwen/Qwen3-TTS-12Hz-1.7B-Base` | Base model path or HF repo ID |
+| `--output_model_path` | `output` | Directory to save checkpoints |
+| `--train_jsonl` | _(required)_ | Path to `train_with_codes.jsonl` |
+| `--batch_size` | `2` | Samples per GPU |
+| `--lr` | `2e-5` | Learning rate |
+| `--num_epochs` | `3` | Training epochs |
+| `--speaker_name` | `speaker_test` | Name embedded in the saved config |
+| `--resume_checkpoint` | `None` | Resume talker weights from a previous checkpoint |
+| `--use_wandb` | off | Enable Weights & Biases logging (requires `wandb login`) |
+
+Checkpoints are written to `output/checkpoint-epoch-{N}`.
+
+#### Arabic support
+
+The training script automatically registers Arabic (token ID `2072`) in the codec language embedding table, initialised from the mean of all other language embeddings as a warm start. No extra flags are needed — include Arabic samples in your JSONL and they will be routed correctly.
+
+The saved `config.json` at each checkpoint includes `"arabic": 2072` under `codec_language_id` so the model is self-contained at inference time.
+
+---
 
 ### 4) Quick inference test
 
@@ -70,22 +86,33 @@ import torch
 import soundfile as sf
 from qwen_tts import Qwen3TTSModel
 
-device = "cuda:0"
 tts = Qwen3TTSModel.from_pretrained(
     "output/checkpoint-epoch-2",
-    device_map=device,
+    device_map="cuda:0",
     dtype=torch.bfloat16,
     attn_implementation="flash_attention_2",
 )
 
 wavs, sr = tts.generate_custom_voice(
     text="She said she would be here by noon.",
-    speaker="speaker_test",
+    speaker="my_speaker",
 )
 sf.write("output.wav", wavs[0], sr)
 ```
 
-### One-click shell script example
+Arabic inference:
+```python
+wavs, sr = tts.generate_custom_voice(
+    text="مرحبًا، كيف حالك؟",
+    speaker="my_speaker",
+    language="arabic",
+)
+sf.write("output_ar.wav", wavs[0], sr)
+```
+
+---
+
+### One-click shell script
 
 ```bash
 #!/usr/bin/env bash
@@ -102,7 +129,7 @@ OUTPUT_DIR="output"
 BATCH_SIZE=2
 LR=2e-5
 EPOCHS=3
-SPEAKER_NAME="speaker_1"
+SPEAKER_NAME="my_speaker"
 
 python prepare_data.py \
   --device ${DEVICE} \

@@ -1,0 +1,54 @@
+# Qwen3-TTS streaming server
+#
+# Set MODEL to a HuggingFace repo ID or a local path (mounted below).
+# All other settings have sensible defaults.
+#
+# Quick start — load from HuggingFace Hub:
+#   MODEL=myuser/qwen3-arabic-tts docker compose up
+#
+# Load from a local checkpoint:
+#   MODEL=/model MODEL_LOCAL=/data/checkpoint-epoch-9 docker compose up
+#
+# Private / gated model:
+#   HF_TOKEN=hf_xxx MODEL=myuser/private-model docker compose up
+#
+# Create a .env file to avoid typing vars every time:
+#   echo 'MODEL=myuser/qwen3-arabic-tts' >> .env
+#   echo 'HF_TOKEN=hf_xxx'               >> .env
+
+services:
+  qwen-tts:
+    build: .
+    image: qwen3-tts-server
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      MODEL:      "${MODEL:-Qwen/Qwen3-TTS-12Hz-1.7B-Base}"
+      ATTN_IMPL:  "${ATTN_IMPL:-sdpa}"
+      DTYPE:      "${DTYPE:-bfloat16}"
+      DEVICE:     "${DEVICE:-cuda:0}"
+      HF_TOKEN:   "${HF_TOKEN:-}"
+      NVIDIA_VISIBLE_DEVICES:      all
+      NVIDIA_DRIVER_CAPABILITIES:  compute,utility
+    volumes:
+      - hf_cache:/cache                           # persists HF Hub downloads
+      - "${VOICE_DIR:-./voices}:/voices:ro"       # Base-model voice files (optional dir)
+      # Uncomment to mount a local model checkpoint and set MODEL=/model:
+      # - "${MODEL_LOCAL:-/tmp}:/model:ro"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s    # extra time for first-run HF download
+
+volumes:
+  hf_cache:    # named volume — survives container restarts
