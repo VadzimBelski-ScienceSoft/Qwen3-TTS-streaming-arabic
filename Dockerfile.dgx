@@ -1,0 +1,78 @@
+# Qwen3-TTS streaming server — DGX Spark (ARM64 / Grace Blackwell)
+#
+# Builds from the official NVIDIA CUDA 13.0 image and installs PyTorch from
+# the cu130 wheel index. This avoids the dev-build version conflicts that
+# occur when layering on top of the NGC PyTorch image.
+#
+# Reference: https://forums.developer.nvidia.com/t/cant-install-torch-torchaudio-torchcodec/348660
+#
+# Build:
+#   docker build --platform linux/arm64 -f Dockerfile.dgx -t qwen3-tts-server .
+#   # or
+#   BASE_IMAGE=nvcr.io/nvidia/cuda:13.0.1-devel-ubuntu24.04 ./build.sh
+#
+# Run:
+#   MODEL=youruser/qwen3-arabic-tts docker run --gpus all -p 8000:8000 \
+#     -e MODEL=youruser/qwen3-arabic-tts qwen3-tts-server
+
+FROM nvcr.io/nvidia/cuda:13.0.1-devel-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
+
+# CUDA paths required for building native extensions
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${CUDA_HOME}/lib:${LD_LIBRARY_PATH}
+
+# HuggingFace model cache — mount /cache as a named volume to persist downloads
+ENV HF_HOME=/cache/huggingface
+
+# Runtime defaults (all overridable via -e or docker-compose environment:)
+ENV MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-Base
+ENV VOICE_DIR=/voices
+ENV HOST=0.0.0.0
+ENV PORT=8000
+ENV DEVICE=cuda:0
+ENV ATTN_IMPL=sdpa
+ENV DTYPE=bfloat16
+ENV HF_TOKEN=
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.12 python3.12-dev python3-pip \
+        sox libsox-fmt-all \
+        git curl \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python3 \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python \
+    && python3 -m pip install --upgrade pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install PyTorch + torchaudio from the official cu130 wheel index.
+# These are the stable release builds matched to CUDA 13.0 on ARM64.
+RUN pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu130
+
+# Copy package source and install with server extras.
+# torch/torchaudio are already pinned above so pip will not touch them.
+COPY pyproject.toml MANIFEST.in ./
+COPY qwen_tts/ ./qwen_tts/
+RUN pip install -e ".[server]"
+
+# Copy server and entrypoint
+COPY server.py openai_speech_client.py entrypoint.sh ./
+RUN chmod +x entrypoint.sh
+
+# flash-attn: optional — ARM64 build from source; falls back to ATTN_IMPL=sdpa
+RUN pip install flash-attn --no-build-isolation 2>/dev/null || \
+    echo "[WARN] flash-attn build skipped — set ATTN_IMPL=sdpa (default)"
+
+EXPOSE 8000
+
+# /cache  — HuggingFace model cache (use a named volume to persist between runs)
+# /voices — reference voice .wav files for Base model (optional)
+# /model  — mount point for local checkpoints (set MODEL=/model when using)
+VOLUME ["/cache", "/voices"]
+
+ENTRYPOINT ["./entrypoint.sh"]
+CMD []

@@ -1,0 +1,73 @@
+# Qwen3-TTS streaming server — Apple Silicon (M1/M2/M3/M4, arm64)
+#
+# NOTE: Docker containers on macOS do NOT have access to Metal/MPS.
+# This image runs on CPU only.  For GPU-accelerated inference on Mac,
+# install natively (see README § Installation) and run server.py directly.
+#
+# Use this image for: development, testing, CI, or containerised CPU inference.
+#
+# Build:
+#   docker build --platform linux/arm64 -f Dockerfile.apple -t qwen3-tts-server-mac .
+#
+# Run:
+#   docker run --rm -p 8000:8000 \
+#     -e MODEL=youruser/qwen3-arabic-tts \
+#     qwen3-tts-server-mac
+#
+# Local checkpoint:
+#   docker run --rm -p 8000:8000 \
+#     -v /path/to/checkpoint:/model:ro \
+#     -e MODEL=/model \
+#     qwen3-tts-server-mac
+
+FROM python:3.12-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
+
+# HuggingFace model cache
+ENV HF_HOME=/cache/huggingface
+
+# Runtime defaults
+ENV MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-Base
+ENV VOICE_DIR=/voices
+ENV HOST=0.0.0.0
+ENV PORT=8000
+# MPS is unavailable inside Docker; use cpu.
+# On native macOS with PyTorch >= 1.12, change to mps for GPU acceleration.
+ENV DEVICE=cpu
+ENV ATTN_IMPL=sdpa
+ENV DTYPE=float32
+ENV HF_TOKEN=
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        sox libsox-fmt-all \
+        git curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install PyTorch for arm64 (CPU build; MPS not available in Linux containers).
+# This is the official arm64-compatible wheel from PyPI.
+RUN pip install torch torchaudio
+
+# Copy package source and install with server extras.
+COPY pyproject.toml MANIFEST.in ./
+COPY qwen_tts/ ./qwen_tts/
+RUN pip install -e ".[server]"
+
+# Copy server and entrypoint
+COPY server.py openai_speech_client.py entrypoint.sh ./
+RUN chmod +x entrypoint.sh
+
+EXPOSE 8000
+
+# /cache  — HuggingFace model cache (named volume for persistence)
+# /voices — reference voice .wav files for Base model (optional)
+# /model  — mount point for local checkpoints (set MODEL=/model when using)
+VOLUME ["/cache", "/voices"]
+
+ENTRYPOINT ["./entrypoint.sh"]
+CMD []
