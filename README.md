@@ -151,6 +151,71 @@ pip install -e .
 
 ---
 
+## Running Natively
+
+### Linux (x86-64 / CUDA)
+
+```bash
+# 1. Install SOX
+sudo apt install sox libsox-fmt-all
+
+# 2. Create environment
+conda create -n qwen3-tts python=3.12 -y
+conda activate qwen3-tts
+
+# 3. Install PyTorch with CUDA 13.0 support
+pip install torch==2.9.1 torchaudio==2.9.1 --index-url https://download.pytorch.org/whl/cu130
+
+# Optional: flash-attention for faster inference
+pip install https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.6.8/flash_attn-2.8.3%2Bcu130torch2.9-cp312-cp312-linux_x86_64.whl
+
+# 4. Install the package
+pip install -e ".[server]"
+
+# 5. Start the server
+python server.py --model Qwen/Qwen3-TTS-12Hz-1.7B-Base --device cuda:0 --port 8000
+
+# Or with a fine-tuned checkpoint
+python server.py --model ./output/checkpoint-epoch-9 --device cuda:0 --port 8000
+```
+
+### macOS — Apple Silicon (M1/M2/M3/M4, MPS)
+
+PyTorch supports Metal (MPS) on Apple Silicon for GPU-accelerated inference without CUDA.
+
+```bash
+# 1. Install SOX
+brew install sox
+
+# 2. Create environment
+conda create -n qwen3-tts python=3.12 -y
+conda activate qwen3-tts
+
+# 3. Install PyTorch (the default PyPI build includes MPS support)
+pip install torch torchaudio
+
+# 4. Install the package
+pip install -e ".[server]"
+
+# 5. Start the server using the MPS backend
+python server.py --model Qwen/Qwen3-TTS-12Hz-1.7B-Base --device mps --dtype float32 --attn-impl sdpa --port 8000
+```
+
+> **Note:** `--dtype float32` is required on MPS — bfloat16 is not fully supported.
+> `--attn-impl sdpa` is the correct attention backend for MPS (flash-attn is CUDA-only).
+
+### macOS — Intel (CPU only)
+
+```bash
+brew install sox
+conda create -n qwen3-tts python=3.12 -y && conda activate qwen3-tts
+pip install torch torchaudio
+pip install -e ".[server]"
+python server.py --model Qwen/Qwen3-TTS-12Hz-1.7B-Base --device cpu --dtype float32 --attn-impl sdpa --port 8000
+```
+
+---
+
 ## Streaming Parameters
 
 | Parameter | Default | Description |
